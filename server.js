@@ -105,20 +105,29 @@ io.on('connection', async (socket) => {
             return;
         }
 
-        // Location Trace (API Call)
+        // ... Upar ka code same ...
+
+        // Location Trace (API Call) - IMPROVED VERSION
         let location = "Unknown Location";
         let countryCode = "";
         
         try {
             // Localhost ko ignore karo
             if (ip && ip.length > 7 && !ip.includes('127.0.0.1')) {
-                const res = await axios.get(`http://ip-api.com/json/${ip}`);
+                // 👇 YAHAN CHANGE HAI: Timeout laga diya (3 second max)
+                const res = await axios.get(`http://ip-api.com/json/${ip}`, { timeout: 3000 });
+                
                 if (res.data.status === 'success') {
                     location = `${res.data.city}, ${res.data.country}`;
                     countryCode = res.data.countryCode;
                 }
             }
-        } catch (e) { console.log("Geo Error:", e.message); }
+        } catch (e) { 
+            // Agar error aaye to server band mat karna, bas log karna
+            console.log("Geo Location Failed (Site still working):", e.message); 
+        }
+
+        // ... Niche ka code same ...
 
         // User Data Object
         const userInfo = {
