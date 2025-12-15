@@ -1,181 +1,140 @@
-require('dotenv').config(); // 🔒 Security: .env file se password uthayega
-
+require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const { Server } = require("socket.io");
 const cors = require('cors');
 const mongoose = require('mongoose');
 const path = require('path');
+const axios = require('axios'); // Location ke liye
 
 const app = express();
 app.use(cors());
-
-// Admin Panel (public folder) serve karne ke liye
 app.use(express.static(path.join(__dirname, 'public')));
 
 const server = http.createServer(app);
-const io = new Server(server, {
-    cors: {
-        origin: "*", // Kisi bhi website ko connect hone do
-        methods: ["GET", "POST"]
-    }
-});
+const io = new Server(server, { cors: { origin: "*" } });
 
-// 👇 DATABASE CONNECTION (Secure Wala)
-// Render settings me MONGO_URI variable set karna mat bhoolna!
-const MONGO_URI = process.env.MONGO_URI; 
+// --- DATABASE CONNECT ---
+mongoose.connect(process.env.MONGO_URI)
+    .then(() => console.log('✅ DB CONNECTED'))
+    .catch(err => console.log('❌ DB ERROR:', err));
 
-if (!MONGO_URI) {
-    console.error("❌ ERROR: MONGO_URI nahi mila! .env file ya Render Settings check kar.");
-} else {
-    mongoose.connect(MONGO_URI)
-        .then(() => console.log('✅ DATABASE CONNECTED - System Ready! 🚀'))
-        .catch(err => console.error('❌ DB CONNECTION ERROR:', err));
-}
-
-// --- SCHEMAS (Database Models) ---
-
-// 1. Visit Logs (Total Views count karne ke liye)
+// --- SCHEMAS ---
 const VisitSchema = new mongoose.Schema({
     website: String,
-    device: String,      // Mobile / Desktop
-    os: String,          // Windows / Android / iOS
-    browser: String,     // Chrome / Safari
+    location: String,
+    countryCode: String,
+    page: String,
+    device: String,
     timestamp: { type: Date, default: Date.now }
 });
 const Visit = mongoose.model('Visit', VisitSchema);
 
-// 2. Unique Users (Asli insaan count karne ke liye)
-const UniqueUserSchema = new mongoose.Schema({
-    visitorId: { type: String, unique: true }, // Ye ID unique rahegi
-    firstVisit: { type: Date, default: Date.now },
-    lastVisit: Date,
-    deviceInfo: String
-});
-const UniqueUser = mongoose.model('UniqueUser', UniqueUserSchema);
+const BannedSchema = new mongoose.Schema({ ip: String, reason: String });
+const BannedIP = mongoose.model('BannedIP', BannedSchema);
 
-// --- MEMORY STORE (Live Tracking) ---
-let liveUsers = {}; 
+// --- MEMORY ---
+let liveUsers = {};
+let bannedIPs = new Set(); // Fast checking ke liye cache
 
-// --- HELPER FUNCTION (OS Pata lagane ke liye) ---
-function getDeviceInfo(userAgent) {
-    let os = "Unknown OS";
-    if (/windows/i.test(userAgent)) os = "Windows";
-    else if (/android/i.test(userAgent)) os = "Android";
-    else if (/iphone|ipad|ipod/i.test(userAgent)) os = "iOS";
-    else if (/linux/i.test(userAgent)) os = "Linux";
-    else if (/mac/i.test(userAgent)) os = "Mac";
+// Server start hote hi Banned IPs load kar lo
+BannedIP.find().then(docs => docs.forEach(d => bannedIPs.add(d.ip)));
 
-    let browser = "Unknown Browser";
-    if (/chrome/i.test(userAgent)) browser = "Chrome";
-    else if (/firefox/i.test(userAgent)) browser = "Firefox";
-    else if (/safari/i.test(userAgent)) browser = "Safari";
-
-    return { os, browser };
-}
-
-// --- MAIN LOGIC (Jab koi connect hoga) ---
 io.on('connection', async (socket) => {
     const query = socket.handshake.query;
-
-    // Check karo: Ye 'Visitor' hai ya 'Admin'?
-    if (query.type === 'visitor') {
-        
-        // 1. User ki Details Nikalo
-        const userAgent = socket.handshake.headers['user-agent'] || "";
-        const referer = socket.handshake.headers.referer || "Direct";
-        let domain = "Unknown Site";
-        
-        try { 
-            if(referer !== "Direct" && referer !== "Direct/Unknown") {
-                domain = new URL(referer).hostname;
-            }
-        } catch(e) {}
-
-        const { os, browser } = getDeviceInfo(userAgent);
-        const deviceType = /mobile/i.test(userAgent) ? "Mobile" : "Desktop";
-        const visitorId = query.visitorId || "anonymous"; // ID jo local storage se aayi
-
-        // 2. Live List me add karo
-        liveUsers[socket.id] = { website: domain, os, browser, device: deviceType };
-
-        console.log(`➕ New User on: ${domain} (${os})`);
-
-        // 3. Database me Save karo (Async taaki server slow na ho)
-        try {
-            // A. Total Visits (Hamesha save hoga)
-            await Visit.create({ website: domain, device: deviceType, os, browser });
-
-            // B. Unique User (Check agar pehle kabhi aaya hai)
-            const existingUser = await UniqueUser.findOne({ visitorId });
-            
-            if (!existingUser) {
-                // Bilkul Naya Banda! 🎉
-                await UniqueUser.create({ 
-                    visitorId, 
-                    deviceInfo: `${os} on ${browser}`, 
-                    lastVisit: new Date() 
-                });
+    
+    // 1. ADMIN LOGIN & COMMANDS
+    if (query.type === 'admin') {
+        socket.on('admin_login', (pass) => {
+            if (pass === LalitBoss123) {
+                socket.emit('login_success');
+                broadcastStats(); // Login hote hi data bhejo
             } else {
-                // Purana Banda (Bas time update karo)
-                existingUser.lastVisit = new Date();
-                await existingUser.save();
+                socket.emit('login_fail');
             }
-        } catch(err) { 
-            console.error("Save Error:", err.message); 
-        }
+        });
 
-        // Sabko naya data bhejo
-        broadcastStats();
+        // GOD MODE ALERT (Sabko message bhejo)
+        socket.on('send_global_alert', (msg) => {
+            io.emit('receive_alert', msg);
+        });
+
+        // BAN USER
+        socket.on('ban_ip', async (ip) => {
+            bannedIPs.add(ip);
+            await BannedIP.create({ ip, reason: "Admin Banned" });
+            // Us IP ke saare sockets disconnect kar do
+            const sockets = await io.fetchSockets();
+            sockets.forEach(s => {
+                if(s.handshake.address.includes(ip) || s.handshake.headers['x-forwarded-for']?.includes(ip)) {
+                    s.disconnect(true);
+                }
+            });
+            broadcastStats();
+        });
+        return; // Admin ko track nahi karna aage
     }
 
-    // Admin jab update maange
-    socket.on('request_update', () => broadcastStats());
+    // 2. VISITOR TRACKING
+    if (query.type === 'visitor') {
+        // IP Nikalo
+        let ip = socket.handshake.headers['x-forwarded-for'] || socket.handshake.address;
+        if (ip.includes(',')) ip = ip.split(',')[0].trim();
 
-    // Jab user chala jaye
-    socket.on('disconnect', () => {
-        if (liveUsers[socket.id]) {
+        // Check agar BAN hai to bhaga do
+        if (bannedIPs.has(ip)) {
+            socket.emit('receive_alert', "⛔ You are BANNED from this server.");
+            socket.disconnect();
+            return;
+        }
+
+        // Location API Call
+        let location = "Unknown";
+        let countryCode = "";
+        try {
+            if (ip && ip.length > 7) {
+                const res = await axios.get(`http://ip-api.com/json/${ip}`);
+                if (res.data.status === 'success') {
+                    location = `${res.data.city}, ${res.data.country}`;
+                    countryCode = res.data.countryCode;
+                }
+            }
+        } catch (e) {}
+
+        const info = {
+            id: socket.id,
+            website: new URL(socket.handshake.headers.referer || "http://direct").hostname,
+            page: query.page || "/",
+            device: /mobile/i.test(socket.handshake.headers['user-agent']) ? "Mobile" : "PC",
+            location,
+            countryCode,
+            ip // Admin ko dikhane ke liye (lekin save mat karna privacy ke liye)
+        };
+
+        liveUsers[socket.id] = info;
+
+        // DB Save
+        Visit.create({ 
+            website: info.website, 
+            location, 
+            countryCode, 
+            page: info.page, 
+            device: info.device 
+        });
+
+        broadcastStats();
+
+        socket.on('disconnect', () => {
             delete liveUsers[socket.id];
             broadcastStats();
-        }
-    });
+        });
+    }
 });
 
-// --- BROADCAST FUNCTION (Sabko Data Bhejna) ---
 async function broadcastStats() {
-    try {
-        const totalLive = Object.keys(liveUsers).length;
-        
-        // Database se counts mango
-        const totalVisits = await Visit.countDocuments();       // Total Views
-        const uniqueVisitors = await UniqueUser.countDocuments(); // Unique Insaan
-
-        // Charts ka data prepare karo
-        const siteBreakdown = {};
-        const osBreakdown = {};
-        
-        Object.values(liveUsers).forEach(u => {
-            // Website wise count
-            siteBreakdown[u.website] = (siteBreakdown[u.website] || 0) + 1;
-            // OS wise count
-            osBreakdown[u.os] = (osBreakdown[u.os] || 0) + 1;
-        });
-
-        // Data bhejo
-        io.emit('update_dashboard', {
-            totalLive,
-            totalVisits,
-            uniqueVisitors,
-            siteBreakdown,
-            osBreakdown
-        });
-    } catch (error) { 
-        console.error("Broadcast Error:", error); 
-    }
+    const totalLive = Object.keys(liveUsers).length;
+    io.emit('update_dashboard', { totalLive, liveUsers });
 }
 
-// --- SERVER START ---
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-    console.log(`🚀 TRACKING SERVER STARTED ON PORT ${PORT}`);
-});
+server.listen(PORT, () => console.log(`🚀 GOD SERVER RUNNING ON ${PORT}`));
