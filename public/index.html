@@ -7,122 +7,116 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="/socket.io/socket.io.js"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <style>
-        body { background: #0f172a; color: white; font-family: sans-serif; overflow-x: hidden; }
-        .glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); }
-        #loginScreen { position: fixed; inset: 0; z-index: 50; background: #000; display: flex; align-items: center; justify-center; }
-    </style>
+    <style>body { background: #0f172a; color: white; }</style>
 </head>
-<body class="p-6">
+<body class="p-4 md:p-8">
 
-    <div id="loginScreen">
+    <div id="loginScreen" class="fixed inset-0 bg-black z-50 flex items-center justify-center">
         <div class="text-center">
-            <h1 class="text-4xl font-bold text-red-600 mb-4">TOP SECRET</h1>
-            <input type="password" id="adminPass" placeholder="Enter Access Code" class="bg-gray-800 text-white p-3 rounded text-center border border-red-800 focus:outline-none focus:border-red-500 w-64">
-            <button onclick="login()" class="block w-full mt-4 bg-red-700 hover:bg-red-600 p-3 rounded font-bold">UNLOCK SYSTEM</button>
-            <p id="loginMsg" class="text-red-400 mt-2 text-sm"></p>
+            <h1 class="text-3xl font-bold text-red-600 mb-4">SECURITY CHECK</h1>
+            <input type="password" id="adminPass" placeholder="Password" class="bg-gray-800 p-2 text-white border border-red-800 rounded">
+            <button onclick="login()" class="bg-red-700 text-white px-6 py-2 rounded mt-2 font-bold">ENTER</button>
+            <p id="loginMsg" class="text-red-400 mt-2"></p>
         </div>
     </div>
 
-    <div id="dashboard" class="hidden">
+    <div id="dashboard" class="hidden max-w-6xl mx-auto">
         
-        <div class="flex justify-between items-end mb-8 border-b border-gray-800 pb-4">
-            <div>
-                <h1 class="text-3xl font-bold">🚀 MASTER CONTROL</h1>
-                <p class="text-gray-400 text-sm">DevLalit Systems v3.0</p>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            <div class="bg-slate-800 p-6 rounded-xl border-l-4 border-green-500">
+                <p class="text-gray-400 text-xs font-bold uppercase">Live Users</p>
+                <h2 id="liveCount" class="text-4xl font-bold mt-2">0</h2>
             </div>
-            <div class="text-right">
-                <p class="text-4xl font-bold text-green-400" id="liveCount">0</p>
-                <p class="text-xs uppercase tracking-widest text-gray-500">Live Targets</p>
+            <div class="bg-slate-800 p-6 rounded-xl border-l-4 border-purple-500">
+                <p class="text-gray-400 text-xs font-bold uppercase">Total History (MongoDB)</p>
+                <h2 id="historyCount" class="text-4xl font-bold mt-2">Loading...</h2>
+            </div>
+            <div class="bg-slate-800 p-6 rounded-xl border-l-4 border-red-500">
+                <p class="text-gray-400 text-xs font-bold uppercase">Global Alert</p>
+                <div class="flex gap-2 mt-2">
+                    <input id="alertMsg" type="text" placeholder="Type message..." class="bg-slate-700 p-2 rounded w-full text-sm">
+                    <button onclick="sendAlert()" class="bg-red-600 px-3 rounded"><i class="fas fa-paper-plane"></i></button>
+                </div>
             </div>
         </div>
 
-        <div class="glass p-4 rounded-xl mb-8 flex gap-4 items-center">
-            <div class="bg-yellow-500/20 p-3 rounded-full text-yellow-400"><i class="fas fa-bullhorn"></i></div>
-            <input type="text" id="alertMsg" placeholder="Type message for all users..." class="bg-transparent border-b border-gray-600 flex-1 p-2 focus:outline-none focus:border-yellow-500">
-            <button onclick="sendAlert()" class="bg-yellow-600 hover:bg-yellow-500 text-black font-bold px-6 py-2 rounded">SEND ALERT</button>
-        </div>
-
-        <div class="glass rounded-xl overflow-hidden">
+        <div class="bg-slate-800 rounded-xl overflow-hidden">
             <table class="w-full text-left text-sm text-gray-400">
                 <thead class="bg-slate-900 text-gray-200 uppercase text-xs">
                     <tr>
                         <th class="p-4">Location</th>
-                        <th class="p-4">Website / Page</th>
-                        <th class="p-4">Device</th>
+                        <th class="p-4">Site / Page</th>
+                        <th class="p-4">Device / IP</th>
                         <th class="p-4 text-right">Action</th>
                     </tr>
                 </thead>
-                <tbody id="userTable">
-                    </tbody>
+                <tbody id="userTable"></tbody>
             </table>
         </div>
     </div>
 
     <script>
         const socket = io({ query: { type: 'admin' } });
+        let bannedList = [];
 
-        // LOGIN LOGIC
         function login() {
-            const pass = document.getElementById('adminPass').value;
-            socket.emit('admin_login', pass);
+            socket.emit('admin_login', document.getElementById('adminPass').value);
         }
 
         socket.on('login_success', () => {
             document.getElementById('loginScreen').style.display = 'none';
             document.getElementById('dashboard').classList.remove('hidden');
         });
+        
+        socket.on('login_fail', () => document.getElementById('loginMsg').innerText = "Wrong Password");
 
-        socket.on('login_fail', () => {
-            document.getElementById('loginMsg').innerText = "❌ ACCESS DENIED";
-            document.getElementById('adminPass').value = '';
-        });
-
-        // DASHBOARD UPDATES
         socket.on('update_dashboard', (data) => {
             document.getElementById('liveCount').innerText = data.totalLive;
+            document.getElementById('historyCount').innerText = data.totalHistory || 0; // History Data
+            bannedList = data.bannedList || [];
+
             const tbody = document.getElementById('userTable');
             tbody.innerHTML = '';
 
             Object.values(data.liveUsers).forEach(u => {
+                const isBanned = bannedList.includes(u.ip);
                 const flag = u.countryCode ? `https://flagcdn.com/20x15/${u.countryCode.toLowerCase()}.png` : '';
                 
                 tbody.innerHTML += `
-                    <tr class="border-b border-gray-700 hover:bg-slate-800">
-                        <td class="p-4 font-bold text-white flex items-center gap-2">
+                    <tr class="border-b border-gray-700">
+                        <td class="p-4 text-white font-bold flex gap-2 items-center">
                             ${flag ? `<img src="${flag}">` : '🏳️'} ${u.location}
                         </td>
                         <td class="p-4">
-                            <div class="text-blue-400 font-bold">${u.website}</div>
-                            <div class="text-xs text-gray-500 font-mono">${u.page}</div>
+                            <div class="text-blue-400">${u.website}</div>
+                            <div class="text-xs text-yellow-500">${u.page}</div>
                         </td>
-                        <td class="p-4 text-white">
-                            ${u.device === 'Mobile' ? '<i class="fas fa-mobile-alt"></i>' : '<i class="fas fa-desktop"></i>'}
+                        <td class="p-4">
+                            <div>${u.device}</div>
+                            <div class="text-xs text-gray-600">${u.ip}</div>
                         </td>
                         <td class="p-4 text-right">
-                            <button onclick="banUser('${u.ip}')" class="text-red-500 hover:text-red-400 text-xs border border-red-900 bg-red-900/20 px-3 py-1 rounded">
-                                <i class="fas fa-ban"></i> BAN IP
-                            </button>
+                            ${isBanned 
+                                ? `<span class="text-red-500 font-bold">⛔ BANNED</span>` 
+                                : `<button onclick="banIP('${u.ip}')" class="bg-red-900/30 text-red-400 border border-red-900 px-3 py-1 rounded hover:bg-red-900">BAN</button>`
+                            }
                         </td>
                     </tr>
                 `;
             });
         });
 
-        // COMMANDS
         function sendAlert() {
             const msg = document.getElementById('alertMsg').value;
             if(msg) {
                 socket.emit('send_global_alert', msg);
+                alert("Message Sent!");
                 document.getElementById('alertMsg').value = '';
-                alert("Alert Sent!");
             }
         }
 
-        function banUser(ip) {
-            if(confirm("Are you sure? This IP will be blocked forever.")) {
-                socket.emit('ban_ip', ip);
-            }
+        function banIP(ip) {
+            if(confirm("Block this user forever?")) socket.emit('ban_ip', ip);
         }
     </script>
 </body>
