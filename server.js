@@ -14,78 +14,94 @@ const io = new Server(server, {
     cors: { origin: "*", methods: ["GET", "POST"] }
 });
 
-// 👇 YAHAN APNA MONGODB URL DAAL (Bahut Important)
-const MONGO_URI = "mongodb+srv://TERA_USER:TERA_PASSWORD@cluster....mongodb.net/?retryWrites=true&w=majority";
+// 👇 TERA DATABASE LINK (Maine fix kar diya hai)
+// Password me '@' tha isliye '%40' lagaya hai taaki error na aaye
+const MONGO_URI = "mongodb+srv://brucewayne028:Lalit%40dev28@devlalit.ufmjppx.mongodb.net/trafficDB?retryWrites=true&w=majority";
 
+// Database Connection
 mongoose.connect(MONGO_URI)
-    .then(() => console.log('✅ MongoDB Connected (History Save Hogi)'))
-    .catch(err => console.log('❌ DB Error:', err));
+    .then(() => console.log('✅ DATABASE CONNECTED - History Save Hogi!'))
+    .catch(err => console.error('❌ DB CONNECTION ERROR:', err));
 
-// Database Schema (Kya kya save karna hai)
+// Schema (Register me kya likhna hai)
 const VisitSchema = new mongoose.Schema({
-    website: String,   // Kaunsi site (SpidyUniverse, etc.)
-    device: String,    // Mobile/Desktop
+    website: String,   // Site ka naam (e.g., spidyuniverse)
+    device: String,    // Mobile ya Laptop
     timestamp: { type: Date, default: Date.now }
 });
 const Visit = mongoose.model('Visit', VisitSchema);
 
-// Memory me Live Users
-let liveUsers = {}; // Format: { socketId: { website: 'url', device: 'mobile' } }
+// Live Users Memory
+let liveUsers = {}; 
 
 io.on('connection', async (socket) => {
-    // 1. Data Extract karna (User kahan se aaya)
+    // 1. User Details Nikalna
     const referer = socket.handshake.headers.referer || "Direct/Unknown";
     const userAgent = socket.handshake.headers['user-agent'];
     const deviceType = /mobile/i.test(userAgent) ? "Mobile" : "Desktop";
     
-    // Website ka saaf naam nikalna (e.g., https://google.com -> google.com)
-    let domain = "Unknown";
+    // Website ka saaf naam nikalna
+    let domain = "Unknown Site";
     try {
-        domain = new URL(referer).hostname;
+        if(referer !== "Direct/Unknown") {
+            domain = new URL(referer).hostname;
+        }
     } catch (e) {}
 
-    // 2. Live Tracking me add karna
-    liveUsers[socket.id] = { website: domain, device: deviceType };
-
-    // 3. Database me Permanent Save karna (History ke liye)
+    // 2. Sirf 'Visitor' ko track karein (Admin ko count na karein)
     if (socket.handshake.query.type === 'visitor') {
-        const newVisit = new Visit({ website: domain, device: deviceType });
-        await newVisit.save();
+        // Live List me add
+        liveUsers[socket.id] = { website: domain, device: deviceType };
+        
+        // Database me Save (History ke liye)
+        try {
+            const newVisit = new Visit({ website: domain, device: deviceType });
+            await newVisit.save();
+        } catch(err) { console.log("Save Error:", err); }
+
+        console.log(`➕ User joined: ${domain}`);
+        broadcastStats();
     }
 
-    // 4. Sabko Data bhejna (Admin Panel update)
-    broadcastStats();
+    // 3. Admin ko Data Bhejna
+    socket.on('request_update', () => broadcastStats());
 
+    // 4. Disconnect hone par
     socket.on('disconnect', () => {
-        delete liveUsers[socket.id];
-        broadcastStats();
+        if (liveUsers[socket.id]) {
+            delete liveUsers[socket.id];
+            broadcastStats();
+        }
     });
 });
 
-// Ye function sara calculation karke Admin Panel ko bhejta hai
+// Sare Admin Panels ko data bhejo
 async function broadcastStats() {
-    // Live Counts
-    const totalLive = Object.keys(liveUsers).length;
-    
-    // Website wise breakdown (Kon kahan se hai)
-    const siteBreakdown = {};
-    Object.values(liveUsers).forEach(u => {
-        siteBreakdown[u.website] = (siteBreakdown[u.website] || 0) + 1;
-    });
+    try {
+        // 1. Live Count
+        const totalLive = Object.keys(liveUsers).length;
+        
+        // 2. Kaunsi site par kitne log (Live)
+        const siteBreakdown = {};
+        Object.values(liveUsers).forEach(u => {
+            siteBreakdown[u.website] = (siteBreakdown[u.website] || 0) + 1;
+        });
 
-    // History Counts (Database se pucho)
-    // Note: Production me ise cache karna chahiye, har bar DB call heavy hoti hai
-    const totalVisits = await Visit.countDocuments();
-    
-    const stats = {
-        totalLive,
-        siteBreakdown,
-        totalVisits,
-        // Tu aur bhi DB queries laga sakta hai yahan (Monthly, etc.)
-    };
+        // 3. Total History Count (Database se)
+        const totalVisits = await Visit.countDocuments();
+        
+        // Data Pack karke bhejo
+        const stats = {
+            totalLive,
+            siteBreakdown,
+            totalVisits
+        };
 
-    io.emit('update_dashboard', stats);
+        io.emit('update_dashboard', stats);
+    } catch (error) {
+        console.error("Broadcast Error:", error);
+    }
 }
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`🚀 Pro Server Running on ${PORT}`));
+server.listen(PORT, () => console.log(`🚀 Server Running on Port ${PORT}`));
