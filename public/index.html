@@ -2,64 +2,147 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Live Traffic Admin</title>
+    <title>Infinity Analytics Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="/socket.io/socket.io.js"></script>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
-        body { background-color: #0f172a; color: #e2e8f0; font-family: sans-serif; }
-        .pulse { animation: pulse-animation 2s infinite; }
-        @keyframes pulse-animation {
-            0% { box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.7); }
-            70% { box-shadow: 0 0 0 15px rgba(74, 222, 128, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(74, 222, 128, 0); }
-        }
+        body { background-color: #0b0e14; color: #a0aec0; font-family: 'Inter', sans-serif; }
+        .glass { background: rgba(30, 41, 59, 0.5); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.05); }
     </style>
 </head>
-<body class="flex flex-col items-center justify-center h-screen">
+<body class="p-6">
 
-    <div class="bg-slate-800 p-8 rounded-2xl border border-slate-700 shadow-2xl text-center w-80 relative overflow-hidden">
-        <div class="absolute top-0 right-0 p-4 opacity-10">
-            <i class="fas fa-users text-8xl text-blue-500"></i>
+    <div class="flex justify-between items-center mb-8">
+        <div>
+            <h1 class="text-3xl font-bold text-white tracking-tight">Traffic Control Center</h1>
+            <p class="text-sm text-slate-500">Real-time surveillance across all domains</p>
         </div>
-
-        <h2 class="text-slate-400 text-sm font-bold uppercase tracking-widest mb-2">Live Visitors</h2>
-        
-        <div class="relative inline-block">
-            <h1 id="count" class="text-8xl font-black text-white transition-all duration-300">0</h1>
-            <div class="absolute -top-2 -right-4 h-4 w-4 rounded-full bg-green-500 pulse"></div>
-        </div>
-
-        <div class="mt-6 pt-6 border-t border-slate-700">
-            <p class="text-xs text-slate-500">Waiting for data...</p>
+        <div class="flex items-center gap-2">
+            <span class="h-3 w-3 rounded-full bg-green-500 animate-pulse"></span>
+            <span class="text-green-500 font-mono text-sm">SYSTEM ONLINE</span>
         </div>
     </div>
 
-    <div class="mt-8 w-full max-w-lg bg-slate-900 p-4 rounded-lg border border-slate-800">
-        <p class="text-sm text-slate-400 mb-2">👇 Ye code apni doosri websites me daal:</p>
-        <div class="bg-black p-3 rounded text-xs text-green-400 font-mono overflow-x-auto select-all cursor-pointer" id="codeBlock">
-            Checking URL...
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div class="glass p-6 rounded-2xl border-l-4 border-blue-500">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400">Total Live Users</h3>
+            <div class="flex items-end gap-3 mt-2">
+                <span id="liveCount" class="text-5xl font-white text-white font-bold">0</span>
+                <span class="text-sm text-green-400 mb-2">● Active Now</span>
+            </div>
+        </div>
+
+        <div class="glass p-6 rounded-2xl border-l-4 border-purple-500">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400">Total Visits (History)</h3>
+            <div class="flex items-end gap-3 mt-2">
+                <span id="totalHistory" class="text-5xl font-white text-white font-bold">0</span>
+                <span class="text-sm text-purple-400 mb-2">Lifetime Views</span>
+            </div>
+        </div>
+
+        <div class="glass p-6 rounded-2xl border-l-4 border-orange-500">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400">Top Website</h3>
+            <div class="mt-2">
+                <span id="topSource" class="text-2xl font-white text-white font-bold">Analyzing...</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        
+        <div class="glass p-6 rounded-2xl">
+            <h3 class="text-white font-semibold mb-4">Live Breakdown by Website</h3>
+            <table class="w-full text-sm text-left">
+                <thead class="text-xs text-slate-500 uppercase bg-slate-900/50">
+                    <tr>
+                        <th class="px-4 py-3">Website URL</th>
+                        <th class="px-4 py-3 text-right">Live Users</th>
+                        <th class="px-4 py-3 text-right">Activity</th>
+                    </tr>
+                </thead>
+                <tbody id="websiteTable">
+                    <tr><td colspan="3" class="text-center py-4">Waiting for data...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="glass p-6 rounded-2xl">
+            <h3 class="text-white font-semibold mb-4">Traffic Distribution</h3>
+            <canvas id="trafficChart"></canvas>
         </div>
     </div>
 
     <script>
-        const socket = io(); // Admin connection
+        const socket = io();
+        let chartInstance = null;
 
-        // Live Count Update
-        socket.on('update_count', (val) => {
-            document.getElementById('count').innerText = val;
+        socket.on('update_dashboard', (data) => {
+            // 1. Basic Stats Update
+            document.getElementById('liveCount').innerText = data.totalLive;
+            document.getElementById('totalHistory').innerText = data.totalVisits;
+
+            // 2. Table Update (Kaunsi site pe kitne log)
+            const tbody = document.getElementById('websiteTable');
+            tbody.innerHTML = '';
+            
+            let maxUsers = 0;
+            let topSite = "None";
+
+            const labels = [];
+            const chartData = [];
+
+            for (const [site, count] of Object.entries(data.siteBreakdown)) {
+                if(site === "Unknown" && count === 0) continue; 
+
+                // Table Row
+                const row = `<tr class="border-b border-slate-700">
+                    <td class="px-4 py-3 text-blue-400 font-mono">${site}</td>
+                    <td class="px-4 py-3 text-right font-bold text-white">${count}</td>
+                    <td class="px-4 py-3 text-right">
+                        <div class="w-full bg-slate-700 rounded-full h-1.5 dark:bg-slate-700">
+                            <div class="bg-blue-500 h-1.5 rounded-full" style="width: 100%"></div>
+                        </div>
+                    </td>
+                </tr>`;
+                tbody.innerHTML += row;
+
+                // Stats for Chart & Top Site
+                labels.push(site);
+                chartData.push(count);
+
+                if (count > maxUsers) {
+                    maxUsers = count;
+                    topSite = site;
+                }
+            }
+
+            document.getElementById('topSource').innerText = topSite;
+
+            // 3. Chart Update
+            updateChart(labels, chartData);
         });
 
-        // Auto-Generate Integration Code
-        const currentUrl = window.location.origin;
-        const scriptCode = `
-<script src="${currentUrl}/socket.io/socket.io.js"><\/script>
-<script>
-  const socket = io("${currentUrl}", { query: { type: 'visitor' } });
-<\/script>`;
-        
-        document.getElementById('codeBlock').innerText = scriptCode;
+        function updateChart(labels, data) {
+            const ctx = document.getElementById('trafficChart').getContext('2d');
+            if (chartInstance) chartInstance.destroy();
+            
+            chartInstance = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: data,
+                        backgroundColor: ['#3b82f6', '#10b981', '#f59e0b', '#ef4444'],
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: { legend: { position: 'bottom', labels: { color: '#94a3b8' } } }
+                }
+            });
+        }
     </script>
 </body>
 </html>
