@@ -5,7 +5,7 @@ const { Server } = require("socket.io");
 const cors = require('cors');
 const mongoose = require('mongoose');
 const path = require('path');
-const axios = require('axios'); // Location nikalne ke liye
+const axios = require('axios');
 
 const app = express();
 app.use(cors());
@@ -14,22 +14,14 @@ app.use(express.static(path.join(__dirname, 'public')));
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
 
-// 👇 ADMIN PASSWORD YAHAN CHANGE KAR LENA
+// 👇 ADMIN PASSWORD
 const ADMIN_PASS = "LalitBoss123"; 
-
-// 👇 DATABASE URL (Ye Render ki Settings se aayega)
 const MONGO_URI = process.env.MONGO_URI;
 
-// --- DATABASE CONNECTION ---
-if (!MONGO_URI) {
-    console.error("❌ ERROR: MONGO_URI nahi mila! Render Environment Variables check kar.");
-} else {
-    mongoose.connect(MONGO_URI)
-        .then(() => console.log('✅ DB CONNECTED - GOD MODE ACTIVE'))
-        .catch(err => console.log('❌ DB ERROR:', err));
-}
+if (!MONGO_URI) console.error("❌ DB URL Missing!");
+else mongoose.connect(MONGO_URI).then(() => console.log('✅ DB Connected')).catch(err => console.log(err));
 
-// --- SCHEMAS (Database Models) ---
+// --- SCHEMAS ---
 const VisitSchema = new mongoose.Schema({
     website: String,
     location: String,
@@ -43,93 +35,71 @@ const Visit = mongoose.model('Visit', VisitSchema);
 const BannedSchema = new mongoose.Schema({ ip: String, reason: String });
 const BannedIP = mongoose.model('BannedIP', BannedSchema);
 
-// --- MEMORY STORE ---
+// --- MEMORY ---
 let liveUsers = {};
-let bannedIPs = new Set(); // Cache for fast blocking
+let bannedIPs = new Set(); 
 
-// Server start hote hi Banned list load kar lo
+// Load Banned IPs
 BannedIP.find().then(docs => docs.forEach(d => bannedIPs.add(d.ip)));
 
 io.on('connection', async (socket) => {
     const query = socket.handshake.query;
-    
-    // ==========================================
-    // 👑 1. ADMIN LOGIC
-    // ==========================================
+
+    // --- ADMIN ---
     if (query.type === 'admin') {
-        // Login Check
         socket.on('admin_login', (pass) => {
             if (pass === ADMIN_PASS) {
                 socket.emit('login_success');
-                broadcastStats(); // Turant data bhejo
+                broadcastStats();
             } else {
                 socket.emit('login_fail');
             }
         });
 
-        // Global Alert (Popup Message)
         socket.on('send_global_alert', (msg) => {
-            io.emit('receive_alert', msg);
+            io.emit('receive_alert', msg); // Sabko bhejo
         });
 
-        // Ban User
         socket.on('ban_ip', async (ip) => {
-            bannedIPs.add(ip); // Memory me block
-            await BannedIP.create({ ip, reason: "Admin Banned" }); // DB me block
+            bannedIPs.add(ip);
+            await BannedIP.create({ ip, reason: "Admin Banned" });
             
-            // Us IP wale sabhi users ko disconnect kar do
+            // Disconnect users with this IP
             const sockets = await io.fetchSockets();
             sockets.forEach(s => {
                 const sIP = s.handshake.headers['x-forwarded-for'] || s.handshake.address;
-                if(sIP && sIP.includes(ip)) {
-                    s.disconnect(true);
-                }
+                if(sIP && sIP.includes(ip)) s.disconnect(true);
             });
             broadcastStats();
         });
-        return; 
+        return;
     }
 
-    // ==========================================
-    // 🕵️‍♂️ 2. VISITOR LOGIC
-    // ==========================================
+    // --- VISITOR ---
     if (query.type === 'visitor') {
-        // IP Address Nikalna
         let ip = socket.handshake.headers['x-forwarded-for'] || socket.handshake.address;
         if (ip && ip.includes(',')) ip = ip.split(',')[0].trim();
-        
-        // Agar IP Ban List me hai to bye-bye
+
+        // CHECK BAN
         if (bannedIPs.has(ip)) {
-            socket.emit('receive_alert', "⛔ YOU ARE BANNED BY ADMIN");
+            socket.emit('receive_alert', "⛔ YOU ARE BANNED");
             socket.disconnect();
             return;
         }
 
-        // ... Upar ka code same ...
-
-        // Location Trace (API Call) - IMPROVED VERSION
-        let location = "Unknown Location";
+        // LOCATION TRACE (With Timeout fix)
+        let location = "Unknown";
         let countryCode = "";
-        
         try {
-            // Localhost ko ignore karo
             if (ip && ip.length > 7 && !ip.includes('127.0.0.1')) {
-                // 👇 YAHAN CHANGE HAI: Timeout laga diya (3 second max)
-                const res = await axios.get(`http://ip-api.com/json/${ip}`, { timeout: 3000 });
-                
+                const res = await axios.get(`http://ip-api.com/json/${ip}`, { timeout: 2000 });
                 if (res.data.status === 'success') {
                     location = `${res.data.city}, ${res.data.country}`;
                     countryCode = res.data.countryCode;
                 }
             }
-        } catch (e) { 
-            // Agar error aaye to server band mat karna, bas log karna
-            console.log("Geo Location Failed (Site still working):", e.message); 
-        }
+        } catch (e) {}
 
-        // ... Niche ka code same ...
-
-        // User Data Object
         const userInfo = {
             id: socket.id,
             website: new URL(socket.handshake.headers.referer || "http://direct").hostname,
@@ -137,39 +107,32 @@ io.on('connection', async (socket) => {
             device: /mobile/i.test(socket.handshake.headers['user-agent']) ? "Mobile" : "PC",
             location,
             countryCode,
-            ip // Admin ko dikhane ke liye
+            ip
         };
 
-        // Live Tracking me add
         liveUsers[socket.id] = userInfo;
-
-        // History Database me save
-        Visit.create({ 
-            website: userInfo.website, 
-            location, 
-            countryCode, 
-            page: userInfo.page, 
-            device: userInfo.device 
-        });
+        
+        // Save to DB
+        Visit.create({ ...userInfo }).catch(err => console.log(err));
 
         broadcastStats();
 
-        // Disconnect hone par
         socket.on('disconnect', () => {
-            if (liveUsers[socket.id]) {
-                delete liveUsers[socket.id];
-                broadcastStats();
-            }
+            delete liveUsers[socket.id];
+            broadcastStats();
         });
     }
 });
 
-// --- HELPER: Sabko Data Bhejna ---
 async function broadcastStats() {
+    // DB se Total History count nikalo
+    const totalHistory = await Visit.countDocuments();
     const totalLive = Object.keys(liveUsers).length;
-    io.emit('update_dashboard', { totalLive, liveUsers });
+    // Banned list bhi bhejo taaki Admin ko dikhe
+    const bannedList = Array.from(bannedIPs);
+    
+    io.emit('update_dashboard', { totalLive, liveUsers, totalHistory, bannedList });
 }
 
-// --- START SERVER ---
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`🚀 SYSTEM ONLINE ON PORT ${PORT}`));
+server.listen(PORT, () => console.log(`🚀 SYSTEM READY ON ${PORT}`));
