@@ -5,7 +5,7 @@ const { Server } = require("socket.io");
 const cors = require('cors');
 const mongoose = require('mongoose');
 const path = require('path');
-const axios = require('axios'); // Location ke liye
+const axios = require('axios'); // Location nikalne ke liye
 
 const app = express();
 app.use(cors());
@@ -14,12 +14,22 @@ app.use(express.static(path.join(__dirname, 'public')));
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
 
-// --- DATABASE CONNECT ---
-mongoose.connect(process.env.MONGO_URI)
-    .then(() => console.log('✅ DB CONNECTED'))
-    .catch(err => console.log('❌ DB ERROR:', err));
+// 👇 ADMIN PASSWORD YAHAN CHANGE KAR LENA
+const ADMIN_PASS = "LalitBoss123"; 
 
-// --- SCHEMAS ---
+// 👇 DATABASE URL (Ye Render ki Settings se aayega)
+const MONGO_URI = process.env.MONGO_URI;
+
+// --- DATABASE CONNECTION ---
+if (!MONGO_URI) {
+    console.error("❌ ERROR: MONGO_URI nahi mila! Render Environment Variables check kar.");
+} else {
+    mongoose.connect(MONGO_URI)
+        .then(() => console.log('✅ DB CONNECTED - GOD MODE ACTIVE'))
+        .catch(err => console.log('❌ DB ERROR:', err));
+}
+
+// --- SCHEMAS (Database Models) ---
 const VisitSchema = new mongoose.Schema({
     website: String,
     location: String,
@@ -33,108 +43,124 @@ const Visit = mongoose.model('Visit', VisitSchema);
 const BannedSchema = new mongoose.Schema({ ip: String, reason: String });
 const BannedIP = mongoose.model('BannedIP', BannedSchema);
 
-// --- MEMORY ---
+// --- MEMORY STORE ---
 let liveUsers = {};
-let bannedIPs = new Set(); // Fast checking ke liye cache
+let bannedIPs = new Set(); // Cache for fast blocking
 
-// Server start hote hi Banned IPs load kar lo
+// Server start hote hi Banned list load kar lo
 BannedIP.find().then(docs => docs.forEach(d => bannedIPs.add(d.ip)));
 
 io.on('connection', async (socket) => {
     const query = socket.handshake.query;
     
-    // 1. ADMIN LOGIN & COMMANDS
+    // ==========================================
+    // 👑 1. ADMIN LOGIC
+    // ==========================================
     if (query.type === 'admin') {
+        // Login Check
         socket.on('admin_login', (pass) => {
-            if (pass === LalitBoss123) {
+            if (pass === ADMIN_PASS) {
                 socket.emit('login_success');
-                broadcastStats(); // Login hote hi data bhejo
+                broadcastStats(); // Turant data bhejo
             } else {
                 socket.emit('login_fail');
             }
         });
 
-        // GOD MODE ALERT (Sabko message bhejo)
+        // Global Alert (Popup Message)
         socket.on('send_global_alert', (msg) => {
             io.emit('receive_alert', msg);
         });
 
-        // BAN USER
+        // Ban User
         socket.on('ban_ip', async (ip) => {
-            bannedIPs.add(ip);
-            await BannedIP.create({ ip, reason: "Admin Banned" });
-            // Us IP ke saare sockets disconnect kar do
+            bannedIPs.add(ip); // Memory me block
+            await BannedIP.create({ ip, reason: "Admin Banned" }); // DB me block
+            
+            // Us IP wale sabhi users ko disconnect kar do
             const sockets = await io.fetchSockets();
             sockets.forEach(s => {
-                if(s.handshake.address.includes(ip) || s.handshake.headers['x-forwarded-for']?.includes(ip)) {
+                const sIP = s.handshake.headers['x-forwarded-for'] || s.handshake.address;
+                if(sIP && sIP.includes(ip)) {
                     s.disconnect(true);
                 }
             });
             broadcastStats();
         });
-        return; // Admin ko track nahi karna aage
+        return; 
     }
 
-    // 2. VISITOR TRACKING
+    // ==========================================
+    // 🕵️‍♂️ 2. VISITOR LOGIC
+    // ==========================================
     if (query.type === 'visitor') {
-        // IP Nikalo
+        // IP Address Nikalna
         let ip = socket.handshake.headers['x-forwarded-for'] || socket.handshake.address;
-        if (ip.includes(',')) ip = ip.split(',')[0].trim();
-
-        // Check agar BAN hai to bhaga do
+        if (ip && ip.includes(',')) ip = ip.split(',')[0].trim();
+        
+        // Agar IP Ban List me hai to bye-bye
         if (bannedIPs.has(ip)) {
-            socket.emit('receive_alert', "⛔ You are BANNED from this server.");
+            socket.emit('receive_alert', "⛔ YOU ARE BANNED BY ADMIN");
             socket.disconnect();
             return;
         }
 
-        // Location API Call
-        let location = "Unknown";
+        // Location Trace (API Call)
+        let location = "Unknown Location";
         let countryCode = "";
+        
         try {
-            if (ip && ip.length > 7) {
+            // Localhost ko ignore karo
+            if (ip && ip.length > 7 && !ip.includes('127.0.0.1')) {
                 const res = await axios.get(`http://ip-api.com/json/${ip}`);
                 if (res.data.status === 'success') {
                     location = `${res.data.city}, ${res.data.country}`;
                     countryCode = res.data.countryCode;
                 }
             }
-        } catch (e) {}
+        } catch (e) { console.log("Geo Error:", e.message); }
 
-        const info = {
+        // User Data Object
+        const userInfo = {
             id: socket.id,
             website: new URL(socket.handshake.headers.referer || "http://direct").hostname,
             page: query.page || "/",
             device: /mobile/i.test(socket.handshake.headers['user-agent']) ? "Mobile" : "PC",
             location,
             countryCode,
-            ip // Admin ko dikhane ke liye (lekin save mat karna privacy ke liye)
+            ip // Admin ko dikhane ke liye
         };
 
-        liveUsers[socket.id] = info;
+        // Live Tracking me add
+        liveUsers[socket.id] = userInfo;
 
-        // DB Save
+        // History Database me save
         Visit.create({ 
-            website: info.website, 
+            website: userInfo.website, 
             location, 
             countryCode, 
-            page: info.page, 
-            device: info.device 
+            page: userInfo.page, 
+            device: userInfo.device 
         });
 
         broadcastStats();
 
+        // Disconnect hone par
         socket.on('disconnect', () => {
-            delete liveUsers[socket.id];
-            broadcastStats();
+            if (liveUsers[socket.id]) {
+                delete liveUsers[socket.id];
+                broadcastStats();
+            }
         });
     }
 });
 
+// --- HELPER: Sabko Data Bhejna ---
 async function broadcastStats() {
     const totalLive = Object.keys(liveUsers).length;
     io.emit('update_dashboard', { totalLive, liveUsers });
 }
 
+// --- START SERVER ---
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`🚀 GOD SERVER RUNNING ON ${PORT}`));
+server.listen(PORT, () => console.log(`🚀 SYSTEM ONLINE ON PORT ${PORT}`));
