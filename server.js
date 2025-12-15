@@ -7,21 +7,30 @@ const mongoose = require('mongoose');
 const path = require('path');
 
 const app = express();
-app.use(cors());
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(cors()); // Sab websites ko allow karo
+app.use(express.static(path.join(__dirname, 'public'))); // Admin panel dikhao
 
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: "*" } });
+const io = new Server(server, {
+    cors: {
+        origin: "*", // Kisi bhi website se connection aane do
+        methods: ["GET", "POST"]
+    }
+});
 
-// Database Connection
+// --- DATABASE CONNECTION ---
+// Render ke Environment Variable se URL lega
 const MONGO_URI = process.env.MONGO_URI;
-if (MONGO_URI) {
+
+if (!MONGO_URI) {
+    console.error("❌ FATAL ERROR: MONGO_URI nahi mila! Render Environment check kar.");
+} else {
     mongoose.connect(MONGO_URI)
-        .then(() => console.log('✅ DB Connected'))
-        .catch(err => console.log(err));
+        .then(() => console.log('✅ DATABASE CONNECTED - SERVER STABLE'))
+        .catch(err => console.log('❌ DB CONNECTION FAIL:', err));
 }
 
-// Simple Schema
+// --- SCHEMA ---
 const VisitSchema = new mongoose.Schema({
     website: String,
     page: String,
@@ -30,22 +39,24 @@ const VisitSchema = new mongoose.Schema({
 });
 const Visit = mongoose.model('Visit', VisitSchema);
 
-let liveUsers = {};
+// --- LIVE MEMORY ---
+let liveUsers = {}; 
 
 io.on('connection', (socket) => {
     const query = socket.handshake.query;
 
-    // --- 1. ADMIN (Bina Password ke) ---
+    // 1. ADMIN LOGIC
     if (query.type === 'admin') {
-        broadcastStats(); // Connect hote hi data bhejo
+        broadcastStats(); // Admin aate hi data dikhao
         
+        // Alert System
         socket.on('send_alert', (msg) => {
-            io.emit('receive_alert', msg);
+            io.emit('receive_alert', msg); // Sab users ko bhejo
         });
         return;
     }
 
-    // --- 2. VISITOR (User) ---
+    // 2. VISITOR LOGIC
     if (query.type === 'visitor') {
         const userInfo = {
             id: socket.id,
@@ -56,8 +67,8 @@ io.on('connection', (socket) => {
 
         liveUsers[socket.id] = userInfo;
         
-        // DB me save karo (Error aaye toh ignore karo taaki server na ruke)
-        Visit.create({ ...userInfo }).catch(() => {});
+        // Database me save karo
+        Visit.create(userInfo).catch(err => console.log("DB Save Error (Ignore):", err.message));
 
         broadcastStats();
 
@@ -68,15 +79,21 @@ io.on('connection', (socket) => {
     }
 });
 
+// Data Bhejne ka Function
 async function broadcastStats() {
     try {
         const totalHistory = await Visit.countDocuments();
         const totalLive = Object.keys(liveUsers).length;
-        io.emit('update_dashboard', { totalLive, liveUsers, totalHistory });
+        
+        io.emit('update_dashboard', { 
+            totalLive, 
+            liveUsers, 
+            totalHistory 
+        });
     } catch (e) {
-        console.log(e);
+        console.log("Broadcast Error:", e);
     }
 }
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`🚀 Server Started on ${PORT}`));
+server.listen(PORT, () => console.log(`🚀 SERVER STARTED ON PORT ${PORT}`));
