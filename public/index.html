@@ -3,77 +3,108 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Master Control</title>
+    <title>DevLalit Pro Analytics</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="/socket.io/socket.io.js"></script>
-    <style>body { background: #0f172a; color: white; }</style>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #0f172a; color: #e2e8f0; font-family: sans-serif; }
+        .glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); }
+    </style>
 </head>
-<body class="p-6 max-w-7xl mx-auto">
+<body class="p-4 md:p-8 min-h-screen">
 
-    <div class="flex justify-between items-center mb-8 border-b border-gray-700 pb-4">
-        <h1 class="text-3xl font-bold text-blue-500">🚀 Traffic Control</h1>
-        <div class="text-green-400 font-bold animate-pulse">● System Online</div>
+    <div class="flex justify-between items-center mb-8">
+        <h1 class="text-2xl font-bold text-white"><i class="fas fa-satellite-dish text-blue-500 mr-2"></i>DevLalit Command Center</h1>
+        <div class="px-3 py-1 bg-green-500/20 text-green-400 rounded-full text-xs font-bold animate-pulse">● LIVE</div>
     </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-        <div class="bg-slate-800 p-8 rounded-2xl border border-blue-500/20">
-            <p class="text-gray-400 text-sm uppercase">Live Users Now</p>
-            <h2 id="liveCount" class="text-6xl font-black mt-2">635</h2>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div class="glass p-6 rounded-2xl border-t-4 border-blue-500">
+            <p class="text-slate-400 text-xs font-bold uppercase">Online Now</p>
+            <h2 id="liveCount" class="text-5xl font-black text-white mt-2">0</h2>
         </div>
-        <div class="bg-slate-800 p-8 rounded-2xl border border-purple-500/20">
-            <p class="text-gray-400 text-sm uppercase">Total Visits (History)</p>
-            <h2 id="historyCount" class="text-6xl font-black mt-2">3648</h2>
+
+        <div class="glass p-6 rounded-2xl border-t-4 border-emerald-500">
+            <p class="text-slate-400 text-xs font-bold uppercase">Total Page Views</p>
+            <h2 id="totalVisits" class="text-5xl font-black text-white mt-2">0</h2>
+            <p class="text-xs text-slate-500 mt-2">Counts every refresh</p>
+        </div>
+
+        <div class="glass p-6 rounded-2xl border-t-4 border-purple-500 bg-purple-900/10">
+            <p class="text-purple-300 text-xs font-bold uppercase">Unique Humans</p>
+            <h2 id="uniqueVisitors" class="text-5xl font-black text-white mt-2">0</h2>
+            <p class="text-xs text-purple-400 mt-2">Real People Count</p>
         </div>
     </div>
 
-    <div class="bg-slate-900 p-4 rounded-xl mb-8 flex gap-4 border border-red-900/50">
-        <input id="alertMsg" type="text" placeholder="Type a message for all users..." class="bg-transparent w-full text-white outline-none">
-        <button onclick="sendAlert()" class="bg-red-600 px-6 py-2 rounded font-bold hover:bg-red-500">SEND ALERT</button>
-    </div>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        
+        <div class="glass p-6 rounded-2xl">
+            <h3 class="font-bold text-slate-300 mb-4">Traffic Sources (Live)</h3>
+            <ul id="websiteList" class="space-y-3 text-sm">
+                <li class="text-center text-slate-500">Waiting for data...</li>
+            </ul>
+        </div>
 
-    <div class="bg-slate-800 rounded-xl overflow-hidden">
-        <table class="w-full text-left text-sm text-gray-400">
-            <thead class="bg-slate-950 text-gray-200 uppercase">
-                <tr>
-                    <th class="p-4">Website</th>
-                    <th class="p-4">Current Page</th>
-                    <th class="p-4">Device</th>
-                </tr>
-            </thead>
-            <tbody id="userTable">
-                <tr><td colspan="3" class="p-4 text-center">Waiting for users...</td></tr>
-            </tbody>
-        </table>
+        <div class="glass p-6 rounded-2xl">
+            <h3 class="font-bold text-slate-300 mb-4">Device OS (Live)</h3>
+            <div class="h-40">
+                <canvas id="osChart"></canvas>
+            </div>
+        </div>
     </div>
 
     <script>
-        const socket = io({ query: { type: 'admin' } });
+        const socket = io();
+        let osChartInstance = null;
 
         socket.on('update_dashboard', (data) => {
+            // Update Numbers
             document.getElementById('liveCount').innerText = data.totalLive;
-            document.getElementById('historyCount').innerText = data.totalHistory;
+            document.getElementById('totalVisits').innerText = data.totalVisits;
+            document.getElementById('uniqueVisitors').innerText = data.uniqueVisitors;
 
-            const tbody = document.getElementById('userTable');
-            tbody.innerHTML = '';
+            // Update List
+            const list = document.getElementById('websiteList');
+            list.innerHTML = '';
+            for (const [site, count] of Object.entries(data.siteBreakdown)) {
+                list.innerHTML += `<li class="flex justify-between p-2 bg-slate-800 rounded">
+                    <span class="text-blue-400">${site}</span>
+                    <span class="font-bold text-white">${count} Users</span>
+                </li>`;
+            }
 
-            Object.values(data.liveUsers).forEach(u => {
-                tbody.innerHTML += `
-                    <tr class="border-b border-gray-700 hover:bg-slate-700">
-                        <td class="p-4 font-bold text-white">${u.website}</td>
-                        <td class="p-4 text-yellow-400 font-mono">${u.page}</td>
-                        <td class="p-4">${u.device}</td>
-                    </tr>
-                `;
-            });
+            // Update OS Chart
+            updateOsChart(data.osBreakdown);
         });
 
-        function sendAlert() {
-            const msg = document.getElementById('alertMsg').value;
-            if (msg) {
-                socket.emit('send_alert', msg);
-                alert("Popup Sent!");
-                document.getElementById('alertMsg').value = '';
-            }
+        socket.emit('request_update');
+
+        function updateOsChart(osData) {
+            const ctx = document.getElementById('osChart').getContext('2d');
+            const labels = Object.keys(osData);
+            const values = Object.values(osData);
+
+            if (osChartInstance) osChartInstance.destroy();
+
+            osChartInstance = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: values,
+                        backgroundColor: ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'],
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { position: 'right', labels: { color: '#cbd5e1' } } }
+                }
+            });
         }
     </script>
 </body>
