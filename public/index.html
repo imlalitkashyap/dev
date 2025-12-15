@@ -2,144 +2,144 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Infinity Analytics Dashboard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dev Lalit - Master Analytics</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="/socket.io/socket.io.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
-        body { background-color: #0b0e14; color: #a0aec0; font-family: 'Inter', sans-serif; }
-        .glass { background: rgba(30, 41, 59, 0.5); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.05); }
+        body { background-color: #0f172a; color: #e2e8f0; font-family: sans-serif; }
+        .glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); }
     </style>
 </head>
-<body class="p-6">
+<body class="p-4 md:p-8 min-h-screen">
 
-    <div class="flex justify-between items-center mb-8">
+    <div class="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
         <div>
-            <h1 class="text-3xl font-bold text-white tracking-tight">Traffic Control Center</h1>
-            <p class="text-sm text-slate-500">Real-time surveillance across all domains</p>
+            <h1 class="text-3xl font-bold text-white"><i class="fas fa-network-wired text-blue-500 mr-2"></i>DevLalit Analytics</h1>
+            <p class="text-slate-400 text-sm">Real-time Monitoring System</p>
         </div>
-        <div class="flex items-center gap-2">
-            <span class="h-3 w-3 rounded-full bg-green-500 animate-pulse"></span>
-            <span class="text-green-500 font-mono text-sm">SYSTEM ONLINE</span>
-        </div>
-    </div>
-
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        <div class="glass p-6 rounded-2xl border-l-4 border-blue-500">
-            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400">Total Live Users</h3>
-            <div class="flex items-end gap-3 mt-2">
-                <span id="liveCount" class="text-5xl font-white text-white font-bold">0</span>
-                <span class="text-sm text-green-400 mb-2">● Active Now</span>
-            </div>
-        </div>
-
-        <div class="glass p-6 rounded-2xl border-l-4 border-purple-500">
-            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400">Total Visits (History)</h3>
-            <div class="flex items-end gap-3 mt-2">
-                <span id="totalHistory" class="text-5xl font-white text-white font-bold">0</span>
-                <span class="text-sm text-purple-400 mb-2">Lifetime Views</span>
-            </div>
-        </div>
-
-        <div class="glass p-6 rounded-2xl border-l-4 border-orange-500">
-            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400">Top Website</h3>
-            <div class="mt-2">
-                <span id="topSource" class="text-2xl font-white text-white font-bold">Analyzing...</span>
-            </div>
+        <div class="flex items-center gap-2 px-4 py-2 bg-green-900/30 border border-green-500/30 rounded-full">
+            <span class="h-2 w-2 rounded-full bg-green-500 animate-pulse"></span>
+            <span class="text-green-400 text-xs font-bold uppercase">Server Online</span>
         </div>
     </div>
 
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
         
-        <div class="glass p-6 rounded-2xl">
-            <h3 class="text-white font-semibold mb-4">Live Breakdown by Website</h3>
-            <table class="w-full text-sm text-left">
-                <thead class="text-xs text-slate-500 uppercase bg-slate-900/50">
+        <div class="glass p-6 rounded-2xl relative overflow-hidden group">
+            <div class="absolute right-0 top-0 p-4 opacity-10"><i class="fas fa-users text-6xl text-blue-400"></i></div>
+            <p class="text-slate-400 text-xs font-bold uppercase tracking-widest">Active Users</p>
+            <h2 id="liveCount" class="text-5xl font-black text-white mt-2">0</h2>
+            <p class="text-green-400 text-sm mt-2"><i class="fas fa-arrow-up"></i> Live Tracking</p>
+        </div>
+
+        <div class="glass p-6 rounded-2xl relative overflow-hidden">
+            <div class="absolute right-0 top-0 p-4 opacity-10"><i class="fas fa-history text-6xl text-purple-400"></i></div>
+            <p class="text-slate-400 text-xs font-bold uppercase tracking-widest">Total Visits (Lifetime)</p>
+            <h2 id="totalHistory" class="text-5xl font-black text-white mt-2">Loading...</h2>
+            <p class="text-purple-400 text-sm mt-2">Saved in MongoDB</p>
+        </div>
+
+        <div class="glass p-6 rounded-2xl lg:col-span-2">
+            <p class="text-slate-400 text-xs font-bold uppercase tracking-widest">Traffic Source Breakdown</p>
+            <div class="mt-4 h-32 flex items-center justify-center text-slate-500 text-sm" id="chartContainer">
+                <canvas id="trafficChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <div class="glass rounded-2xl overflow-hidden">
+        <div class="p-6 border-b border-slate-700">
+            <h3 class="font-bold text-white text-lg">Current Live Traffic Sources</h3>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full text-left text-sm text-slate-400">
+                <thead class="bg-slate-800 text-xs uppercase text-slate-200">
                     <tr>
-                        <th class="px-4 py-3">Website URL</th>
-                        <th class="px-4 py-3 text-right">Live Users</th>
-                        <th class="px-4 py-3 text-right">Activity</th>
+                        <th class="px-6 py-4">Website / Domain</th>
+                        <th class="px-6 py-4 text-center">Live Count</th>
+                        <th class="px-6 py-4 text-right">Status</th>
                     </tr>
                 </thead>
                 <tbody id="websiteTable">
-                    <tr><td colspan="3" class="text-center py-4">Waiting for data...</td></tr>
+                    <tr><td colspan="3" class="px-6 py-4 text-center">Waiting for users...</td></tr>
                 </tbody>
             </table>
-        </div>
-
-        <div class="glass p-6 rounded-2xl">
-            <h3 class="text-white font-semibold mb-4">Traffic Distribution</h3>
-            <canvas id="trafficChart"></canvas>
         </div>
     </div>
 
     <script>
         const socket = io();
-        let chartInstance = null;
+        let myChart = null;
 
+        // Server se data aane par
         socket.on('update_dashboard', (data) => {
-            // 1. Basic Stats Update
+            // 1. Numbers Update
             document.getElementById('liveCount').innerText = data.totalLive;
             document.getElementById('totalHistory').innerText = data.totalVisits;
 
-            // 2. Table Update (Kaunsi site pe kitne log)
+            // 2. Table Update
             const tbody = document.getElementById('websiteTable');
-            tbody.innerHTML = '';
-            
-            let maxUsers = 0;
-            let topSite = "None";
+            tbody.innerHTML = ''; // Clear old data
 
             const labels = [];
             const chartData = [];
 
-            for (const [site, count] of Object.entries(data.siteBreakdown)) {
-                if(site === "Unknown" && count === 0) continue; 
+            if (Object.keys(data.siteBreakdown).length === 0) {
+                tbody.innerHTML = `<tr><td colspan="3" class="px-6 py-4 text-center text-slate-600">No users online right now</td></tr>`;
+            } else {
+                for (const [site, count] of Object.entries(data.siteBreakdown)) {
+                    labels.push(site);
+                    chartData.push(count);
 
-                // Table Row
-                const row = `<tr class="border-b border-slate-700">
-                    <td class="px-4 py-3 text-blue-400 font-mono">${site}</td>
-                    <td class="px-4 py-3 text-right font-bold text-white">${count}</td>
-                    <td class="px-4 py-3 text-right">
-                        <div class="w-full bg-slate-700 rounded-full h-1.5 dark:bg-slate-700">
-                            <div class="bg-blue-500 h-1.5 rounded-full" style="width: 100%"></div>
-                        </div>
-                    </td>
-                </tr>`;
-                tbody.innerHTML += row;
-
-                // Stats for Chart & Top Site
-                labels.push(site);
-                chartData.push(count);
-
-                if (count > maxUsers) {
-                    maxUsers = count;
-                    topSite = site;
+                    const row = `
+                        <tr class="border-b border-slate-700/50 hover:bg-slate-800/50 transition">
+                            <td class="px-6 py-4 font-mono text-blue-400">${site}</td>
+                            <td class="px-6 py-4 text-center">
+                                <span class="bg-blue-900 text-blue-300 py-1 px-3 rounded-full text-xs font-bold">${count}</span>
+                            </td>
+                            <td class="px-6 py-4 text-right">
+                                <span class="text-green-500 text-xs">● Active</span>
+                            </td>
+                        </tr>
+                    `;
+                    tbody.innerHTML += row;
                 }
             }
-
-            document.getElementById('topSource').innerText = topSite;
 
             // 3. Chart Update
             updateChart(labels, chartData);
         });
 
+        // Request initial data
+        socket.emit('request_update');
+
         function updateChart(labels, data) {
             const ctx = document.getElementById('trafficChart').getContext('2d');
-            if (chartInstance) chartInstance.destroy();
             
-            chartInstance = new Chart(ctx, {
-                type: 'doughnut',
+            if (myChart) myChart.destroy(); // Purana chart delete karo
+
+            myChart = new Chart(ctx, {
+                type: 'bar', // Bar graph
                 data: {
                     labels: labels,
                     datasets: [{
+                        label: 'Live Users',
                         data: data,
-                        backgroundColor: ['#3b82f6', '#10b981', '#f59e0b', '#ef4444'],
-                        borderWidth: 0
+                        backgroundColor: '#3b82f6',
+                        borderRadius: 5
                     }]
                 },
                 options: {
                     responsive: true,
-                    plugins: { legend: { position: 'bottom', labels: { color: '#94a3b8' } } }
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: '#1e293b' } },
+                        x: { grid: { display: false } }
+                    }
                 }
             });
         }
