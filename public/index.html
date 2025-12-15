@@ -3,108 +3,126 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DevLalit Pro Analytics</title>
+    <title>God Mode Admin</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="/socket.io/socket.io.js"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
-        body { background-color: #0f172a; color: #e2e8f0; font-family: sans-serif; }
-        .glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); }
+        body { background: #0f172a; color: white; font-family: sans-serif; overflow-x: hidden; }
+        .glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); }
+        #loginScreen { position: fixed; inset: 0; z-index: 50; background: #000; display: flex; align-items: center; justify-center; }
     </style>
 </head>
-<body class="p-4 md:p-8 min-h-screen">
+<body class="p-6">
 
-    <div class="flex justify-between items-center mb-8">
-        <h1 class="text-2xl font-bold text-white"><i class="fas fa-satellite-dish text-blue-500 mr-2"></i>DevLalit Command Center</h1>
-        <div class="px-3 py-1 bg-green-500/20 text-green-400 rounded-full text-xs font-bold animate-pulse">● LIVE</div>
-    </div>
-
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        <div class="glass p-6 rounded-2xl border-t-4 border-blue-500">
-            <p class="text-slate-400 text-xs font-bold uppercase">Online Now</p>
-            <h2 id="liveCount" class="text-5xl font-black text-white mt-2">0</h2>
-        </div>
-
-        <div class="glass p-6 rounded-2xl border-t-4 border-emerald-500">
-            <p class="text-slate-400 text-xs font-bold uppercase">Total Page Views</p>
-            <h2 id="totalVisits" class="text-5xl font-black text-white mt-2">0</h2>
-            <p class="text-xs text-slate-500 mt-2">Counts every refresh</p>
-        </div>
-
-        <div class="glass p-6 rounded-2xl border-t-4 border-purple-500 bg-purple-900/10">
-            <p class="text-purple-300 text-xs font-bold uppercase">Unique Humans</p>
-            <h2 id="uniqueVisitors" class="text-5xl font-black text-white mt-2">0</h2>
-            <p class="text-xs text-purple-400 mt-2">Real People Count</p>
+    <div id="loginScreen">
+        <div class="text-center">
+            <h1 class="text-4xl font-bold text-red-600 mb-4">TOP SECRET</h1>
+            <input type="password" id="adminPass" placeholder="Enter Access Code" class="bg-gray-800 text-white p-3 rounded text-center border border-red-800 focus:outline-none focus:border-red-500 w-64">
+            <button onclick="login()" class="block w-full mt-4 bg-red-700 hover:bg-red-600 p-3 rounded font-bold">UNLOCK SYSTEM</button>
+            <p id="loginMsg" class="text-red-400 mt-2 text-sm"></p>
         </div>
     </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+    <div id="dashboard" class="hidden">
         
-        <div class="glass p-6 rounded-2xl">
-            <h3 class="font-bold text-slate-300 mb-4">Traffic Sources (Live)</h3>
-            <ul id="websiteList" class="space-y-3 text-sm">
-                <li class="text-center text-slate-500">Waiting for data...</li>
-            </ul>
+        <div class="flex justify-between items-end mb-8 border-b border-gray-800 pb-4">
+            <div>
+                <h1 class="text-3xl font-bold">🚀 MASTER CONTROL</h1>
+                <p class="text-gray-400 text-sm">DevLalit Systems v3.0</p>
+            </div>
+            <div class="text-right">
+                <p class="text-4xl font-bold text-green-400" id="liveCount">0</p>
+                <p class="text-xs uppercase tracking-widest text-gray-500">Live Targets</p>
+            </div>
         </div>
 
-        <div class="glass p-6 rounded-2xl">
-            <h3 class="font-bold text-slate-300 mb-4">Device OS (Live)</h3>
-            <div class="h-40">
-                <canvas id="osChart"></canvas>
-            </div>
+        <div class="glass p-4 rounded-xl mb-8 flex gap-4 items-center">
+            <div class="bg-yellow-500/20 p-3 rounded-full text-yellow-400"><i class="fas fa-bullhorn"></i></div>
+            <input type="text" id="alertMsg" placeholder="Type message for all users..." class="bg-transparent border-b border-gray-600 flex-1 p-2 focus:outline-none focus:border-yellow-500">
+            <button onclick="sendAlert()" class="bg-yellow-600 hover:bg-yellow-500 text-black font-bold px-6 py-2 rounded">SEND ALERT</button>
+        </div>
+
+        <div class="glass rounded-xl overflow-hidden">
+            <table class="w-full text-left text-sm text-gray-400">
+                <thead class="bg-slate-900 text-gray-200 uppercase text-xs">
+                    <tr>
+                        <th class="p-4">Location</th>
+                        <th class="p-4">Website / Page</th>
+                        <th class="p-4">Device</th>
+                        <th class="p-4 text-right">Action</th>
+                    </tr>
+                </thead>
+                <tbody id="userTable">
+                    </tbody>
+            </table>
         </div>
     </div>
 
     <script>
-        const socket = io();
-        let osChartInstance = null;
+        const socket = io({ query: { type: 'admin' } });
 
-        socket.on('update_dashboard', (data) => {
-            // Update Numbers
-            document.getElementById('liveCount').innerText = data.totalLive;
-            document.getElementById('totalVisits').innerText = data.totalVisits;
-            document.getElementById('uniqueVisitors').innerText = data.uniqueVisitors;
+        // LOGIN LOGIC
+        function login() {
+            const pass = document.getElementById('adminPass').value;
+            socket.emit('admin_login', pass);
+        }
 
-            // Update List
-            const list = document.getElementById('websiteList');
-            list.innerHTML = '';
-            for (const [site, count] of Object.entries(data.siteBreakdown)) {
-                list.innerHTML += `<li class="flex justify-between p-2 bg-slate-800 rounded">
-                    <span class="text-blue-400">${site}</span>
-                    <span class="font-bold text-white">${count} Users</span>
-                </li>`;
-            }
-
-            // Update OS Chart
-            updateOsChart(data.osBreakdown);
+        socket.on('login_success', () => {
+            document.getElementById('loginScreen').style.display = 'none';
+            document.getElementById('dashboard').classList.remove('hidden');
         });
 
-        socket.emit('request_update');
+        socket.on('login_fail', () => {
+            document.getElementById('loginMsg').innerText = "❌ ACCESS DENIED";
+            document.getElementById('adminPass').value = '';
+        });
 
-        function updateOsChart(osData) {
-            const ctx = document.getElementById('osChart').getContext('2d');
-            const labels = Object.keys(osData);
-            const values = Object.values(osData);
+        // DASHBOARD UPDATES
+        socket.on('update_dashboard', (data) => {
+            document.getElementById('liveCount').innerText = data.totalLive;
+            const tbody = document.getElementById('userTable');
+            tbody.innerHTML = '';
 
-            if (osChartInstance) osChartInstance.destroy();
-
-            osChartInstance = new Chart(ctx, {
-                type: 'doughnut',
-                data: {
-                    labels: labels,
-                    datasets: [{
-                        data: values,
-                        backgroundColor: ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'],
-                        borderWidth: 0
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: { legend: { position: 'right', labels: { color: '#cbd5e1' } } }
-                }
+            Object.values(data.liveUsers).forEach(u => {
+                const flag = u.countryCode ? `https://flagcdn.com/20x15/${u.countryCode.toLowerCase()}.png` : '';
+                
+                tbody.innerHTML += `
+                    <tr class="border-b border-gray-700 hover:bg-slate-800">
+                        <td class="p-4 font-bold text-white flex items-center gap-2">
+                            ${flag ? `<img src="${flag}">` : '🏳️'} ${u.location}
+                        </td>
+                        <td class="p-4">
+                            <div class="text-blue-400 font-bold">${u.website}</div>
+                            <div class="text-xs text-gray-500 font-mono">${u.page}</div>
+                        </td>
+                        <td class="p-4 text-white">
+                            ${u.device === 'Mobile' ? '<i class="fas fa-mobile-alt"></i>' : '<i class="fas fa-desktop"></i>'}
+                        </td>
+                        <td class="p-4 text-right">
+                            <button onclick="banUser('${u.ip}')" class="text-red-500 hover:text-red-400 text-xs border border-red-900 bg-red-900/20 px-3 py-1 rounded">
+                                <i class="fas fa-ban"></i> BAN IP
+                            </button>
+                        </td>
+                    </tr>
+                `;
             });
+        });
+
+        // COMMANDS
+        function sendAlert() {
+            const msg = document.getElementById('alertMsg').value;
+            if(msg) {
+                socket.emit('send_global_alert', msg);
+                document.getElementById('alertMsg').value = '';
+                alert("Alert Sent!");
+            }
+        }
+
+        function banUser(ip) {
+            if(confirm("Are you sure? This IP will be blocked forever.")) {
+                socket.emit('ban_ip', ip);
+            }
         }
     </script>
 </body>
