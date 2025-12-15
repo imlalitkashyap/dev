@@ -3,70 +3,64 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Live Admin</title>
+    <title>Master Control</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="/socket.io/socket.io.js"></script>
     <style>body { background: #0f172a; color: white; }</style>
 </head>
-<body class="p-6">
+<body class="p-6 max-w-7xl mx-auto">
 
-    <div class="max-w-6xl mx-auto">
-        <div class="flex justify-between items-center mb-8 border-b border-gray-700 pb-4">
-            <h1 class="text-3xl font-bold text-blue-500">⚡ Live Dashboard</h1>
-            <div class="text-right">
-                <p class="text-gray-400 text-xs">Status</p>
-                <p class="text-green-400 font-bold">● System Online</p>
-            </div>
-        </div>
-        
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-            <div class="bg-slate-800 p-6 rounded-xl border border-blue-500/30">
-                <p class="text-gray-400 text-xs uppercase">Live Users</p>
-                <h2 id="liveCount" class="text-5xl font-bold mt-2">0</h2>
-            </div>
-            <div class="bg-slate-800 p-6 rounded-xl border border-purple-500/30">
-                <p class="text-gray-400 text-xs uppercase">Total History</p>
-                <h2 id="historyCount" class="text-5xl font-bold mt-2">Loading...</h2>
-            </div>
-        </div>
+    <div class="flex justify-between items-center mb-8 border-b border-gray-700 pb-4">
+        <h1 class="text-3xl font-bold text-blue-500">🚀 Traffic Control</h1>
+        <div class="text-green-400 font-bold animate-pulse">● System Online</div>
+    </div>
 
-        <div class="flex gap-2 mb-8">
-            <input id="alertMsg" type="text" placeholder="Send popup message to all users..." class="bg-slate-800 border border-slate-600 p-3 rounded w-full text-white focus:outline-none focus:border-blue-500">
-            <button onclick="sendAlert()" class="bg-blue-600 px-6 rounded font-bold hover:bg-blue-500">SEND</button>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+        <div class="bg-slate-800 p-8 rounded-2xl border border-blue-500/20">
+            <p class="text-gray-400 text-sm uppercase">Live Users Now</p>
+            <h2 id="liveCount" class="text-6xl font-black mt-2">0</h2>
         </div>
-
-        <div class="bg-slate-800 rounded-xl overflow-hidden border border-slate-700">
-            <table class="w-full text-left text-sm text-gray-400">
-                <thead class="bg-slate-900 text-gray-200 uppercase text-xs">
-                    <tr>
-                        <th class="p-4">Website</th>
-                        <th class="p-4">Page</th>
-                        <th class="p-4">Device</th>
-                    </tr>
-                </thead>
-                <tbody id="userTable">
-                    <tr><td colspan="3" class="p-4 text-center">Waiting for data...</td></tr>
-                </tbody>
-            </table>
+        <div class="bg-slate-800 p-8 rounded-2xl border border-purple-500/20">
+            <p class="text-gray-400 text-sm uppercase">Total Visits (History)</p>
+            <h2 id="historyCount" class="text-6xl font-black mt-2">...</h2>
         </div>
     </div>
 
+    <div class="bg-slate-900 p-4 rounded-xl mb-8 flex gap-4 border border-red-900/50">
+        <input id="alertMsg" type="text" placeholder="Type a message for all users..." class="bg-transparent w-full text-white outline-none">
+        <button onclick="sendAlert()" class="bg-red-600 px-6 py-2 rounded font-bold hover:bg-red-500">SEND ALERT</button>
+    </div>
+
+    <div class="bg-slate-800 rounded-xl overflow-hidden">
+        <table class="w-full text-left text-sm text-gray-400">
+            <thead class="bg-slate-950 text-gray-200 uppercase">
+                <tr>
+                    <th class="p-4">Website</th>
+                    <th class="p-4">Current Page</th>
+                    <th class="p-4">Device</th>
+                </tr>
+            </thead>
+            <tbody id="userTable">
+                <tr><td colspan="3" class="p-4 text-center">Waiting for users...</td></tr>
+            </tbody>
+        </table>
+    </div>
+
     <script>
-        // Seedha connect (No Login)
         const socket = io({ query: { type: 'admin' } });
 
         socket.on('update_dashboard', (data) => {
             document.getElementById('liveCount').innerText = data.totalLive;
-            document.getElementById('historyCount').innerText = data.totalHistory || 0;
+            document.getElementById('historyCount').innerText = data.totalHistory;
 
             const tbody = document.getElementById('userTable');
             tbody.innerHTML = '';
 
             Object.values(data.liveUsers).forEach(u => {
                 tbody.innerHTML += `
-                    <tr class="border-b border-gray-700">
-                        <td class="p-4 text-white font-bold">${u.website}</td>
-                        <td class="p-4 text-yellow-500">${u.page}</td>
+                    <tr class="border-b border-gray-700 hover:bg-slate-700">
+                        <td class="p-4 font-bold text-white">${u.website}</td>
+                        <td class="p-4 text-yellow-400 font-mono">${u.page}</td>
                         <td class="p-4">${u.device}</td>
                     </tr>
                 `;
@@ -75,9 +69,9 @@
 
         function sendAlert() {
             const msg = document.getElementById('alertMsg').value;
-            if(msg) {
+            if (msg) {
                 socket.emit('send_alert', msg);
-                alert("Sent!");
+                alert("Popup Sent!");
                 document.getElementById('alertMsg').value = '';
             }
         }
